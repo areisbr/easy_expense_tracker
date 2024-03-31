@@ -1,7 +1,6 @@
 from typing import Optional, List
 from sqlalchemy import ForeignKey, String, Double, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-
 import os
 
 BALANCE_ENTRIES_TABLE="balance_entries"
@@ -51,6 +50,7 @@ class BankAccount(Base):
     id : Mapped[int] = mapped_column(primary_key=True)
     name : Mapped[str] = mapped_column(String(30))
     credit : Mapped[bool] = mapped_column(default=False)
+
 
 def connect_sqlite_db(file_path):
     if not os.path.exists(file_path):
