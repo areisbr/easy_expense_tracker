@@ -44,8 +44,16 @@ def is_duplicate_digest_list(digest_list : list, entry : dict) -> bool:
     return True if digest in digest_list else False
 
 
-def get_amount_detail(timestamp, amount, category, annotation, data_store):
-    return [{"timestamp": timestamp, "amount": amount, "category": get_category(category), "annotation": annotation}]
+def get_amount_detail(data_store, balance_entry):
+    return [
+        {
+            "timestamp": balance_entry.timestamp,
+            "amount": balance_entry.amount,
+            "category": get_category(balance_entry.category),
+            "annotation": balance_entry.annotation,
+            "cash_flow": balance_entry.cash_flow.upper()
+        }
+    ]
 
 
 def do_import(extract_fun, args, data_store, success_fun, error_fun):
@@ -56,7 +64,7 @@ def do_import(extract_fun, args, data_store, success_fun, error_fun):
             "bank_account": get_bank_account(result.template, args.due_date != None, data_store),
             "timestamp": result.timestamp,
             "amount": result.amount,
-            "amount_detail": get_amount_detail(result.timestamp, result.amount, result.category, result.annotation, data_store),
+            "amount_detail": get_amount_detail(data_store, result),
             "doc_id": result.doc_id if result.doc_id else '',
             "description": result.description,
             "cash_flow": result.cash_flow.upper(),

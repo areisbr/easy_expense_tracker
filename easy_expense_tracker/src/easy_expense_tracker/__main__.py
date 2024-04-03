@@ -52,7 +52,7 @@ if __name__ == "__main__":
         importer.do_import(extractor.get_extractor(args.template, args.CSV),
             args, data_store, import_success_callback, import_failure_callback)
     elif args.command == 'review':
-        reviewer.do_review(args)
+        reviewer.do_review(args, data_store)
     elif args.command == 'aggregate':
         aggregator.do_aggregate(args)
         pass

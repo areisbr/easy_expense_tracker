@@ -1,19 +1,13 @@
-from .balance import Category, BankAccount, BalanceEntry, Base, AmountDetail
-from sqlalchemy.orm import Session
-from sqlalchemy import create_engine, delete, or_
 from datetime import datetime, timezone
 
 import os
 import locale
 
-INSTRUCTIONS = {
-    "UPDATED_RECORDS": "{count} records updated"
-}
 
 def category_prompt_help():
     print("q".rjust(6), ":", _("Abort current session without saving"))
     print(".".rjust(6), ":", _("Stop review"))
-    print("*".rjust(6), ":", _("Show all category"))
+    print("*".rjust(6), ":", _("Show all categories"))
     print(_("id").rjust(6), ":", _("Numeric identification of a previously created category"))
     print(_("name").rjust(6), ":", _("Name of a previously created category"))
     print(";".rjust(6), ":", _("Optionally use this separator as described bellow"))
@@ -22,23 +16,22 @@ def category_prompt_help():
     print("".rjust(6), " ", _("For both split and annotate enter the amount then the annotation (ex. Meal;50.00;Happy hour)"))
     print("".rjust(6), " ", _("When splitting the remaining amount will be prompted until the total amount is fullfiled"))
 
-def show_categories(session : Session):
-    for c in session.query(Category).filter().order_by(Category.name):
-        print(str(c.id).rjust(2), c.name)
+
+def show_categories(data_store):
+    for c in data_store.get_categories():
+        print(str(c.get('id')).rjust(2), c.get('name'))
 
 
-def get_no_category_id(session : Session):
-    return 
-
-
-def add_category(session: Session, category_name, is_expense):
-    category = session.query(Category).filter(Category.name == category_name).first()
+def add_category(data_store, name, expense):
+    category = data_store.get_category_by_name(name)
     if not category:
-        new_category = Category(name = category_name, expense = is_expense)
-        session.add(new_category)
-        session.commit()
-        return new_category.id
-    return category.id
+        category = {
+            "name": name,
+            "expense": expense
+        }
+        category = data_store.create_category(category)
+    return category.get('id')
+
 
 def parse_user_input(user_input):
     params = {}
@@ -54,20 +47,15 @@ def parse_user_input(user_input):
                 params.update({'annotation': tokens[2]})
     return params
 
-def intValue(string, default):
-    try:
-        return int(string)
-    except ValueError:
-        return default
 
-def prompt_category(session : Session):
+def prompt_category(data_store):
     while True:
         user_input = input(_('Category ID, name to add or ?: '))
         try:
             if not user_input:
                 continue
             if user_input == '*':
-                show_categories(session)
+                show_categories(data_store)
                 continue
             elif user_input == '.':
                 break
@@ -78,16 +66,20 @@ def prompt_category(session : Session):
             else:
                 params = parse_user_input(user_input)
                 if 'category' in params:
-                    result = session.query(Category).filter(or_(Category.id == intValue(params.get('category'), -1), Category.name == params.get('category')))
-                    if result.count() > 0:
-                        params.update({'category': result.first().name})
-                        params.update({'category_id': result.first().id})
+                    if params.get('category').isnumeric():
+                        category = data_store.get_category_by_id(int(params.get('category')))
                     else:
-                        is_expense = input(_('Is it an expense? '))
-                        if not is_expense.lower().startswith(_('y')) and not is_expense.lower().startswith(_('n')):
+                        category = data_store.get_category_by_name(params.get('category'))
+
+                    if category:
+                        params.update({'category': category.get('name')})
+                        params.update({'category_id': category.get('id')})
+                    else:
+                        is_expense = input(_('Is it an expense [yes|no]? ')).lower()
+                        if not is_expense.startswith(_('y')) and not is_expense.startswith(_('n')):
                             print(_('Answer yes or no. Category was not created, try again.'))
                             continue
-                        params.update({'category_id': add_category(session, params.get('category'), True if is_expense.startswith(_('y')) else False)})
+                        params.update({'category_id': add_category(data_store, params.get('category'), True if is_expense.startswith(_('y')) else False)})
                 else:
                     params = None
                 return params
@@ -96,69 +88,59 @@ def prompt_category(session : Session):
     return None
 
 
-def connect_db(args):
-    if not os.path.exists(args.database):
-        print(_("Database {db} not found").format(db=args.database))
-        quit(2)
-    engine = create_engine(f"sqlite:///{args.database}", echo=False)
-    Base.metadata.create_all(engine)
-    return engine
-
-    
 def format_balance_entry(entry):
     return {
-        'timestamp': datetime.fromtimestamp(entry.timestamp, timezone.utc).strftime("%Y-%m-%d"),
-        'description': entry.description,
-        'amount': str(entry.amount)
+        'timestamp': datetime.fromtimestamp(entry.get('timestamp'), timezone.utc).strftime("%Y-%m-%d"),
+        'description': entry.get('description'),
+        'amount': '{}{}'.format('-' if entry.get('cash_flow') == 'D' else '', str(entry.get('amount')))
     }
+
 
 def int_val(value):
     return int(value * 100)
 
 
-def do_review(args):
-    engine = connect_db(args)
-    did_update = 0
-    with Session(engine) as session:
-        no_category = session.query(Category).filter(Category.name == 'No Category').first()
-        if not no_category:
-            print(_("Nothing to review"))
-            quit(0)
-        for entry in session.query(BalanceEntry).where(BalanceEntry.amount_detail.any(AmountDetail.category == no_category)):
-            print('-' * 15)
-            print("{timestamp} {description} {amount}".format(**format_balance_entry(entry)))
-            print('-' * 15)
-            amount_details = []
-            current_amount = 0
-            while int_val(current_amount) < int_val(entry.amount):
-                category_details = prompt_category(session)
-                if not category_details:
-                    break
-                amount_detail = {
-                    'category_id': category_details.get('category_id'),
-                    'amount': category_details.get('amount', entry.amount - current_amount),
-                    'annotation': category_details.get('annotation', ''),
-                    'timestamp': entry.timestamp,
-                    'balance_entry_id': entry.id
-                }
-                if int_val(amount_detail.get('amount') + current_amount) > int_val(entry.amount):
-                    print(_('Balance entry amount exceeded'))
-                    continue
-                current_amount += amount_detail.get('amount')
-                diff = entry.amount - current_amount
-                if int_val(diff) != 0:
-                    print(f"{diff:.2f} remaining, please add a category to it.")
-                amount_details.append(amount_detail)
-            if len(amount_details) > 0:
-                session.execute(delete(AmountDetail).where(AmountDetail.balance_entry_id == entry.id))
-                for ad in amount_details:
-                    session.add(AmountDetail(**ad))
-                    did_update += 1
-            else:
+def do_review(args, data_store):
+    amount_details = []
+    no_category = data_store.get_category_by_name(_('No Category')).get('name')
+    if not no_category:
+        print(_("Nothing to review"))
+        quit(0)
+    for entry in data_store.get_balance_entries_by_amount_detail_category_name(_('No Category')):
+        print('-' * 15)
+        print("{timestamp} | {description} | {amount}".format(**format_balance_entry(entry)))
+        print('-' * 15)
+        current_amount = 0
+        while int_val(current_amount) < int_val(entry.get('amount')):
+            category_details = prompt_category(data_store)
+            if not category_details:
                 break
-        if did_update:
-            session.commit()
-            print(_("{count} records updated").format(count=did_update))
-    if did_update == 0:
-        print(_("Nothing changed"))
+            amount_detail = {
+                'category_id': category_details.get('category_id'),
+                'amount': category_details.get('amount', entry.get('amount') - current_amount),
+                'annotation': category_details.get('annotation', ''),
+                'timestamp': entry.get('timestamp'),
+                'balance_entry_id': entry.get('id'),
+                'cash_flow': entry.get('cash_flow')
+            }
+            if int_val(amount_detail.get('amount') + current_amount) > int_val(entry.get('amount')):
+                print(_('Balance entry amount exceeded'))
+                continue
+            current_amount += amount_detail.get('amount')
+            diff = entry.get('amount') - current_amount
+            if int_val(diff) != 0:
+                print(f"{diff:.2f} remaining, please add a category to it.")
+            amount_details.append(amount_detail)
+        if not category_details:
+            break
 
+    unique_balance_entries = set([x.get('balance_entry_id') for x in amount_details])
+    for balance_entry_id in unique_balance_entries:
+        data_store.delete_all_amount_detail_by_balance_entry_id(balance_entry_id)
+
+    data_store.create_amount_detail_items(amount_details)
+
+    if len(unique_balance_entries) > 0:
+        print(_("{count} records updated").format(count=len(unique_balance_entries)))
+    else:
+        print(_("Nothing changed"))

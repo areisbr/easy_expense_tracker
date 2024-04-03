@@ -33,6 +33,7 @@ class AmountDetail(Base):
     balance_entry : Mapped["BalanceEntry"] = relationship(back_populates="amount_detail")
     timestamp : Mapped[float] = mapped_column(Double(3))
     amount : Mapped[float] = mapped_column(Double(2))
+    cash_flow : Mapped[int] = mapped_column(String(1))
     category_id : Mapped[int] = mapped_column(ForeignKey(f"{CATEGORIES_TABLE}.id"))
     category : Mapped["Category"] = relationship()
     annotation: Mapped[str] = mapped_column(String(128))
